@@ -19,6 +19,9 @@ CELLRANGER_GEX_DEPTHS: tuple[int, ...] = (1000, 3000, 5000, 10000, 20000, 30000,
 
 CURVE_COLUMNS: tuple[str, ...] = ("modality", "metric", "rate", "mean_reads_per_cell", "value")
 
+#: Metrics whose values are fractions (duplicate reads) rather than counts per cell.
+SATURATION_METRICS: frozenset[str] = frozenset({"sequencing_saturation", "duplication"})
+
 
 def survival(p: float, kmax: int) -> NDArray[np.float64]:
     """Probability that an item with ``k`` reads survives thinning, for ``k = 0..kmax``.

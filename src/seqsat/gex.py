@@ -73,16 +73,21 @@ def _read_json(ds: h5py.Dataset) -> Any:
 
 
 def library_info(f: h5py.File) -> list[dict[str, Any]]:
-    """Parsed ``library_info`` JSON (one dict per library)."""
+    """Parsed ``library_info`` JSON (one dict per library).
+
+    The molecules' ``library_idx`` is the position in this list. Its ``library_id``
+    field equals the position in recent files but is a string in older ones
+    (file_version 3), so it is not used.
+    """
     return _read_json(f["library_info"])
 
 
 def gex_library_ids(f: h5py.File) -> NDArray[np.int64]:
-    """Library indices with ``library_type == "Gene Expression"``."""
-    ids = [lib["library_id"] for lib in library_info(f) if lib["library_type"] == GENE_EXPRESSION]
+    """Library indices (positions in ``library_info``) of ``Gene Expression`` libraries."""
+    ids = [i for i, lib in enumerate(library_info(f)) if lib["library_type"] == GENE_EXPRESSION]
     if not ids:
         raise ValueError("molecule_info has no Gene Expression library")
-    return np.asarray(sorted(ids), dtype=np.int64)
+    return np.asarray(ids, dtype=np.int64)
 
 
 def gex_feature_mask(f: h5py.File) -> NDArray[np.bool_]:
@@ -112,7 +117,7 @@ def raw_read_pairs(path: Path) -> int | None:
 def _cell_keys_from_pass_filter(f: h5py.File, n_groups: int) -> NDArray[np.int64]:
     """Cell keys ``barcode_idx * n_groups + gem_group`` from ``barcode_info/pass_filter``."""
     pf = f["barcode_info/pass_filter"][:].astype(np.int64)
-    libs = {lib["library_id"]: lib for lib in library_info(f)}
+    libs = library_info(f)
     gex_ids = set(gex_library_ids(f).tolist())
     keep = np.array([int(lib) in gex_ids for lib in pf[:, 1]], dtype=bool)
     pf = pf[keep]

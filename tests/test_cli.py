@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -112,3 +114,16 @@ def test_atac_end_to_end(tmp_path):
     cli.main(["atac", str(outs), "--out", str(out), "--targets", "0.5", "0.9"])
     fits = check_outputs(out, {"fragments_per_cell", "duplication"})
     assert fits["inputs"]["atac"] == {"n_cells": 2, "total_raw_reads": 500}
+
+
+def test_cli_import_does_not_load_analysis_stack():
+    # The analysis stack is imported by the subcommands, keeping `seqsat --help` fast.
+    code = (
+        "import sys, seqsat.cli; "
+        "print(','.join(m for m in ('numpy', 'pandas', 'scipy', 'h5py', 'pyarrow', 'matplotlib') "
+        "if m in sys.modules))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == ""

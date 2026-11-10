@@ -5,7 +5,7 @@ import h5py
 import numpy as np
 import pytest
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "brain10k"
+DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
 
 # Synthetic molecule_info content.
 #   features: 0..2 Gene Expression, 3 Antibody Capture
@@ -40,6 +40,7 @@ def write_molecule_info(
     path: Path,
     molecules: list[tuple[int, int, int, int, int]] = SYN_MOLECULES,
     pass_filter: list[tuple[int, int, int]] | None = None,
+    libraries: list[dict] = SYN_LIBRARIES,
 ) -> Path:
     """Write a molecule_info.h5 with the same layout as Cell Ranger ARC 2.2.0."""
     m = np.asarray(molecules, dtype=np.int64)
@@ -66,7 +67,7 @@ def write_molecule_info(
         )
         f.create_dataset("features/genome", data=np.asarray([b"GRCh38"] * n_feat))
         f.create_dataset(
-            "library_info", data=np.asarray([json.dumps(SYN_LIBRARIES).encode()], dtype="S262144")
+            "library_info", data=np.asarray([json.dumps(libraries).encode()], dtype="S262144")
         )
         metrics = {"libraries": {"0": {"raw_read_pairs": 1234}, "1": {"raw_read_pairs": 99}}}
         f.create_dataset("metrics_json", data=json.dumps(metrics), dtype=h5py.string_dtype())
@@ -78,8 +79,32 @@ def molecule_info(tmp_path: Path) -> Path:
     return write_molecule_info(tmp_path / "molecule_info.h5")
 
 
+def _dataset(name: str) -> Path:
+    path = DATA_ROOT / name
+    if not path.is_dir() or not any(path.iterdir()):
+        pytest.skip(f"test data not found in {path}; run scripts/download_test_data.sh {name}")
+    return path
+
+
 @pytest.fixture(scope="session")
 def brain10k() -> Path:
-    if not (DATA_DIR / "summary.csv").exists():
-        pytest.skip(f"test data not found in {DATA_DIR}; run scripts/download_test_data.sh")
-    return DATA_DIR
+    """cellranger-arc 2.2.0 outs."""
+    return _dataset("brain10k")
+
+
+@pytest.fixture(scope="session")
+def pbmc10k_gex() -> Path:
+    """cellranger 6.1.0 count outs."""
+    return _dataset("pbmc10k_gex")
+
+
+@pytest.fixture(scope="session")
+def pbmc1k_gex() -> Path:
+    """cellranger 3.0.0 count outs (molecule_info file_version 3)."""
+    return _dataset("pbmc1k_gex")
+
+
+@pytest.fixture(scope="session")
+def pbmc1k_atac() -> Path:
+    """cellranger-atac 2.0.0 count outs."""
+    return _dataset("pbmc1k_atac")

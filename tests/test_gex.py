@@ -83,3 +83,12 @@ def test_saturation_from_all_barcodes(molecule_info):
 
 def test_raw_read_pairs_sums_gex_libraries(molecule_info):
     assert raw_read_pairs(molecule_info) == 1234
+
+
+def test_library_idx_is_position_in_library_info(tmp_path):
+    # file_version 3 stores library_id as a string; library_idx indexes the list.
+    libs = [
+        {"library_id": "0", "library_type": "Gene Expression", "gem_group": 1},
+        {"library_id": "1", "library_type": "Antibody Capture", "gem_group": 1},
+    ]
+    check_synthetic(read_molecule_info(write_molecule_info(tmp_path / "m.h5", libraries=libs)))

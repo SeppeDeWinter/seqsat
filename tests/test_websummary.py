@@ -57,3 +57,37 @@ def test_extract_curves(tmp_path):
 def test_extract_curves_none_present(tmp_path):
     df = extract_curves(write_html(tmp_path / "ws.html", data={"sample": {}}))
     assert df.empty and tuple(df.columns) == CURVE_COLUMNS
+
+
+def test_extract_nested_count_layout(tmp_path):
+    # cellranger count 6.x nests figures under summary.analysis_tab.<key>.plot
+    plot = {"data": [{"name": "", "x": [0, 500, 1000], "y": [0, 0.2, 0.3]}], "layout": {}}
+    data = {
+        "summary": {
+            "analysis_tab": {
+                "seq_saturation_plot": {"plot": plot, "help": {}},
+                "median_gene_plot": {
+                    "plot": {**plot, "data": [{"name": "GRCh38", **plot["data"][0]}]}
+                },
+            }
+        }
+    }
+    df = extract_curves(write_html(tmp_path / "ws.html", data=data))
+    assert set(df.metric) == {"sequencing_saturation", "genes_per_cell"}
+    sat = df[df.metric == "sequencing_saturation"]
+    np.testing.assert_array_equal(sat.value, [0, 0.2, 0.3])
+
+
+def test_first_plot_per_metric_wins(tmp_path):
+    first = {"data": [{"x": [1], "y": [10]}], "layout": {}}
+    second = {"data": [{"x": [1], "y": [99]}], "layout": {}}
+    data = {"gex_genes_per_cell_plot": first, "nested": {"median_gene_plot": {"plot": second}}}
+    df = extract_curves(write_html(tmp_path / "ws.html", data=data))
+    assert df.value.tolist() == [10]
+
+
+def test_compressed_web_summary_is_rejected(tmp_path):
+    p = tmp_path / "ws.html"
+    p.write_text("<script>var compressed_data = 'N4Ig';</script>")
+    with pytest.raises(ValueError, match="compressed"):
+        load_data(p)

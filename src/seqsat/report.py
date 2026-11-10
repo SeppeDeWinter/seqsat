@@ -12,6 +12,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 from seqsat import __version__
+from seqsat.curves import SATURATION_METRICS
 from seqsat.fit import MetricResult, TargetDepth
 
 CURVES_FILE = "curves.csv"
@@ -30,6 +31,10 @@ MODALITY_LABELS = {"gex": "GEX", "atac": "ATAC"}
 # Reference palette (light mode): one data series per panel, neutral ink for the rest.
 SURFACE = "#fcfcfb"
 SERIES = "#2a78d6"
+SERIES_2 = "#eb6834"
+
+#: Maximum number of Cell Ranger markers per panel in :func:`plot_curve_comparison`.
+COMPARISON_MAX_MARKERS = 20
 TEXT_PRIMARY = "#0b0b0b"
 TEXT_SECONDARY = "#52514e"
 TEXT_MUTED = "#8a8985"
@@ -118,15 +123,7 @@ def plot_saturation(curves: pd.DataFrame, results: Sequence[MetricResult], out: 
         x_max = max([1.15 * r.x_now, *(1.1 * t.reads_per_cell for t in r.targets)])
         x_fit = np.linspace(0, x_max, 300)
 
-        ax.set_facecolor(SURFACE)
-        ax.grid(True, color=GRID, linewidth=0.8)
-        ax.set_axisbelow(True)
-        for side in ("top", "right"):
-            ax.spines[side].set_visible(False)
-        for side in ("left", "bottom"):
-            ax.spines[side].set_color(TEXT_MUTED)
-        ax.tick_params(colors=TEXT_SECONDARY, labelsize=8)
-
+        _style_axes(ax)
         ax.plot(x_fit, r.fit.predict(x_fit), color=TEXT_SECONDARY, linewidth=1.5, zorder=2)
         ax.plot(
             c.mean_reads_per_cell, c.value, "o", color=SERIES, markersize=3.5,
@@ -155,18 +152,85 @@ def plot_saturation(curves: pd.DataFrame, results: Sequence[MetricResult], out: 
 
         ax.set_xlim(0, x_max)
         ax.set_ylim(0, None if r.kind == "count" else 1.0)
-        ax.set_title(_metric_title(r), color=TEXT_PRIMARY, fontsize=10, loc="left")
-        ax.set_xlabel("Mean read pairs per cell", color=TEXT_SECONDARY, fontsize=8.5)
-        ax.set_ylabel(METRIC_LABELS.get(r.metric, r.metric), color=TEXT_SECONDARY, fontsize=8.5)
-        ax.xaxis.set_major_formatter(lambda v, _: _fmt_count(v))
-        if r.kind == "saturation":
-            ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
-        else:
-            ax.yaxis.set_major_formatter(lambda v, _: f"{v:,.0f}")
+        _label_axes(ax, _metric_title(r), r.metric)
     for ax in axes.ravel()[n:]:
         ax.set_visible(False)
     fig.savefig(path, dpi=150, facecolor=SURFACE)
     return path
+
+
+def _style_axes(ax: Any) -> None:
+    ax.set_facecolor(SURFACE)
+    ax.grid(True, color=GRID, linewidth=0.8)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(TEXT_MUTED)
+    ax.tick_params(colors=TEXT_SECONDARY, labelsize=8)
+
+
+def _label_axes(ax: Any, title: str, metric: str) -> None:
+    ax.set_title(title, color=TEXT_PRIMARY, fontsize=10, loc="left")
+    ax.set_xlabel("Mean read pairs per cell", color=TEXT_SECONDARY, fontsize=8.5)
+    ax.set_ylabel(METRIC_LABELS.get(metric, metric), color=TEXT_SECONDARY, fontsize=8.5)
+    ax.xaxis.set_major_formatter(lambda v, _: _fmt_count(v))
+    if metric in SATURATION_METRICS:
+        ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+    else:
+        ax.yaxis.set_major_formatter(lambda v, _: f"{v:,.0f}")
+
+
+def plot_curve_comparison(
+    panels: Sequence[tuple[str, str, pd.DataFrame, pd.DataFrame]], path: Path
+) -> Path:
+    """Compare seqsat curves with Cell Ranger's web-summary curves, one panel per curve.
+
+    Cell Ranger's points are shown as markers, thinned to at most
+    ``COMPARISON_MAX_MARKERS`` evenly spaced points per panel so the seqsat line stays
+    visible; the last point (current depth) is always shown.
+
+    Parameters
+    ----------
+    panels
+        ``(title, metric, ours, cellranger)``; ``ours`` and ``cellranger`` have columns
+        ``mean_reads_per_cell`` and ``value``.
+    path
+        Output image file.
+    """
+    n = len(panels)
+    ncols = min(n, 3)
+    nrows = math.ceil(n / ncols)
+    fig = Figure(figsize=(4.8 * ncols, 3.6 * nrows + 0.4), facecolor=SURFACE, layout="constrained")
+    axes = fig.subplots(nrows, ncols, squeeze=False)
+    for ax, (title, metric, ours, cr) in zip(axes.ravel(), panels, strict=False):
+        if len(cr) > COMPARISON_MAX_MARKERS:
+            keep = np.unique(
+                np.linspace(0, len(cr) - 1, COMPARISON_MAX_MARKERS).round().astype(int)
+            )
+            cr = cr.iloc[keep]
+        _style_axes(ax)
+        ax.plot(
+            ours.mean_reads_per_cell, ours.value, color=SERIES, linewidth=2,
+            label="seqsat (exact expectation)", zorder=2,
+        )  # fmt: skip
+        ax.plot(
+            cr.mean_reads_per_cell, cr.value, "o", color=SERIES_2, markersize=4.5,
+            markeredgecolor=SURFACE, markeredgewidth=0.8, label="Cell Ranger web summary",
+            zorder=3,
+        )  # fmt: skip
+        ax.set_xlim(0, None)
+        ax.set_ylim(0, None)
+        _label_axes(ax, title, metric)
+    for ax in axes.ravel()[n:]:
+        ax.set_visible(False)
+    handles, labels = axes.ravel()[0].get_legend_handles_labels()
+    fig.legend(
+        handles, labels, loc="outside upper center", ncols=2, frameon=False,
+        labelcolor=TEXT_PRIMARY, fontsize=9,
+    )  # fmt: skip
+    fig.savefig(path, dpi=150, facecolor=SURFACE)
+    return Path(path)
 
 
 def format_summary(results: Sequence[MetricResult]) -> str:
