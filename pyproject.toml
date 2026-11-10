@@ -17,6 +17,9 @@ dependencies = [
     "tyro>=1.0.17",
 ]
 
+[project.urls]
+Repository = "https://github.com/SeppeDeWinter/seqsat"
+
 [project.scripts]
 seqsat = "seqsat.cli:main"
 

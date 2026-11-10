@@ -1,5 +1,7 @@
 # seqsat
 
+[![CI](https://github.com/SeppeDeWinter/seqsat/actions/workflows/ci.yml/badge.svg)](https://github.com/SeppeDeWinter/seqsat/actions/workflows/ci.yml)
+
 Sequencing saturation for 10x Genomics single-cell RNA-seq and ATAC-seq, computed from
 Cell Ranger outputs.
 
@@ -21,9 +23,13 @@ Supported pipelines: `cellranger count` (GEX), `cellranger-atac count` (ATAC) an
 seqsat needs Python ≥ 3.12. All dependencies install from pre-built wheels.
 
 ```bash
-git clone <repository-url> seqsat && cd seqsat
-uv tool install .          # puts `seqsat` on your PATH
-# or, without installing:
+uv tool install git+https://github.com/SeppeDeWinter/seqsat   # puts `seqsat` on your PATH
+```
+
+Or from a clone:
+
+```bash
+git clone https://github.com/SeppeDeWinter/seqsat.git && cd seqsat
 uv run seqsat --help
 ```
 
