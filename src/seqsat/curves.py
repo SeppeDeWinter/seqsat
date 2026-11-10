@@ -7,7 +7,7 @@ detected items in a cell is the sum of ``s(k)`` over its items, so per cell it o
 depends on the histogram of ``k``.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -246,3 +246,40 @@ def curve_frame(
         },
         columns=list(CURVE_COLUMNS),
     )
+
+
+def modality_curves(
+    modality: str,
+    count_hists: Mapping[str, sparse.csr_array],
+    saturation_metric: str,
+    saturation_hist: ArrayLike,
+    total_raw_reads: float,
+    n_cells: int,
+    rates: ArrayLike,
+) -> pd.DataFrame:
+    """Tidy curve table for one modality.
+
+    Parameters
+    ----------
+    modality
+        Label for the ``modality`` column (``"gex"`` or ``"atac"``).
+    count_hists
+        Metric name -> cell histogram; the value is the median expected count per cell.
+    saturation_metric
+        Metric name for the saturation curve computed from ``saturation_hist``.
+    saturation_hist
+        1-D all-barcode histogram for :func:`expected_saturation`.
+    total_raw_reads
+        All sequenced reads (read pairs) of the library.
+    n_cells
+        Number of cell barcodes.
+    rates
+        Read-keeping probabilities.
+    """
+    frames = [
+        curve_frame(modality, name, rates, expected_curve(h, rates), total_raw_reads, n_cells)
+        for name, h in count_hists.items()
+    ]
+    sat = expected_saturation(saturation_hist, rates)
+    frames.append(curve_frame(modality, saturation_metric, rates, sat, total_raw_reads, n_cells))
+    return pd.concat(frames, ignore_index=True)

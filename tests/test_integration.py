@@ -1,11 +1,13 @@
-"""End-to-end checks on the 10k Human Brain Multiome dataset (Cell Ranger ARC 2.2.0)."""
+"""End-to-end checks on a Cell Ranger ARC outs directory (see the ``brain10k`` fixture)."""
 
+import json
 import resource
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from seqsat import cli
 from seqsat.atac import AtacHistograms, read_fragments, read_header
 from seqsat.curves import expected_counts, expected_curve, expected_saturation
 from seqsat.gex import GexHistograms, raw_read_pairs, read_molecule_info
@@ -180,3 +182,21 @@ def test_curve_matches_web_summary(request, metric, web_curves, summary):
     rel = np.abs(ours - ws.value.to_numpy()) / ws.value.to_numpy()
     print(f"\n{metric}: max relative difference {rel.max():.4%} over {len(rel)} points")
     assert rel.max() < tol
+
+
+# ---------------------------------------------------------------- CLI end to end
+
+
+def test_arc_cli_end_to_end(brain10k, summary, tmp_path):
+    cli.main(["arc", str(brain10k), "--out", str(tmp_path)])
+    curves = pd.read_csv(tmp_path / "curves.csv")
+    fits = {m["metric"]: m for m in json.loads((tmp_path / "fits.json").read_text())["metrics"]}
+    assert (tmp_path / "saturation.png").stat().st_size > 0
+
+    # The p = 1 point of each curve is the observed value.
+    at_one = curves[curves.rate == 1.0].set_index("metric").value
+    assert at_one["umis_per_cell"] == summary_metric(summary, "GEX Median UMI counts per cell")
+    assert at_one["genes_per_cell"] == summary_metric(summary, "GEX Median genes per cell")
+    for metric in at_one.index:
+        assert fits[metric]["current_value"] == pytest.approx(at_one[metric])
+        assert fits[metric]["r2"] > 0.99

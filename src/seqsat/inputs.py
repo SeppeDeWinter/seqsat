@@ -135,3 +135,49 @@ def split_gem_group(barcodes: NDArray[np.str_]) -> tuple[NDArray[np.bytes_], NDA
         else:
             seqs[i], groups[i] = str(bc).encode(), 1
     return seqs.astype(np.bytes_), groups
+
+
+@dataclass(frozen=True)
+class AtacOutputs:
+    """Files of a ``cellranger-atac count`` outs directory."""
+
+    outs: Path
+    summary: Path
+    singlecell: Path
+    fragments: Path
+    web_summary: Path | None
+
+    @classmethod
+    def from_dir(cls, outs: Path) -> "AtacOutputs":
+        outs = Path(outs)
+        summary = _find(outs, ["summary.csv"])
+        singlecell = _find(outs, ["singlecell.csv"])
+        frags = _find(outs, ["fragments.tsv.gz"])
+        assert summary and singlecell and frags
+        return cls(
+            outs=outs,
+            summary=summary,
+            singlecell=singlecell,
+            fragments=frags,
+            web_summary=_find(outs, ["web_summary.html"], required=False),
+        )
+
+
+def atac_cell_barcodes(singlecell: Path) -> NDArray[np.str_]:
+    """Cell barcodes (``is__cell_barcode == 1``) from a cellranger-atac ``singlecell.csv``."""
+    df = pd.read_csv(singlecell, usecols=["barcode", "is__cell_barcode"])
+    return df.loc[df["is__cell_barcode"] == 1, "barcode"].to_numpy(dtype=np.str_)
+
+
+def read_barcode_file(path: Path) -> NDArray[np.str_]:
+    """Barcodes from a text file (optionally gzipped), one per line; blank lines skipped.
+
+    Only the first comma- or tab-separated field of each line is used, so a
+    ``barcodes.tsv.gz`` or a one-column CSV works too.
+    """
+    df = pd.read_csv(path, header=None, sep=r"[,\t]", engine="python", usecols=[0], dtype=str)
+    barcodes = df[0].dropna().str.strip()
+    barcodes = barcodes[barcodes != ""]
+    if barcodes.empty:
+        raise ValueError(f"{path}: no barcodes")
+    return barcodes.to_numpy(dtype=np.str_)
