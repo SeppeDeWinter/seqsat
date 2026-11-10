@@ -1,0 +1,51 @@
+[project]
+name = "seqsat"
+version = "0.1.0"
+description = "Sequencing saturation for 10x scRNA-seq and scATAC-seq from Cell Ranger outputs"
+readme = "README.md"
+authors = [
+    { name = "Seppe De Winter", email = "seppe.dewinter@hotmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "h5py>=3.16.0",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.4",
+    "pandas>=3.1.1",
+    "pyarrow>=26.0.1",
+    "scipy>=1.18.1",
+    "tyro>=1.0.17",
+]
+
+[project.scripts]
+seqsat = "seqsat.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.4,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: needs downloaded 10x data"]
+addopts = "-m 'not slow'"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "NPY"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.4",
+    "ty>=0.0.100",
+]
