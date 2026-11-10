@@ -1,4 +1,4 @@
-"""Command-line interface (placeholder until milestone 5)."""
+"""Command-line interface for ``seqsat``."""
 
 import sys
 
