@@ -6,9 +6,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from seqsat.curves import expected_counts, expected_saturation
+from seqsat.atac import AtacHistograms, read_fragments, read_header
+from seqsat.curves import expected_counts, expected_curve, expected_saturation
 from seqsat.gex import GexHistograms, raw_read_pairs, read_molecule_info
 from seqsat.inputs import ArcOutputs, arc_cell_barcodes, read_summary_csv, summary_metric
+from seqsat.websummary import extract_curves
 
 pytestmark = pytest.mark.slow
 
@@ -85,3 +87,96 @@ def test_gex_metrics_json_read_pairs(arc, summary):
 def test_gex_peak_memory(gex):
     print(f"\npeak RSS {peak_rss_gb():.2f} GB")
     assert peak_rss_gb() < 2.0
+
+
+# ---------------------------------------------------------------- ATAC
+
+
+@pytest.fixture(scope="module")
+def atac(arc) -> AtacHistograms:
+    h = read_fragments(arc.atac_fragments, arc_cell_barcodes(arc.per_barcode_metrics))
+    print(f"\nATAC histograms built; peak RSS {peak_rss_gb():.2f} GB")
+    return h
+
+
+@pytest.fixture(scope="module")
+def atac_deficit(arc, atac):
+    """Cell Ranger's per-cell ``atac_fragments`` minus our fragments-file count."""
+    pb = pd.read_csv(arc.per_barcode_metrics, usecols=["barcode", "atac_fragments"])
+    cr = pb.set_index("barcode").loc[atac.cell_barcodes, "atac_fragments"].to_numpy()
+    return cr - expected_counts(atac.cell, [1.0])[:, 0]
+
+
+def test_atac_fragments_only_on_primary_contigs(arc, atac):
+    assert set(atac.contig_fragments) <= set(read_header(arc.atac_fragments).primary_contigs)
+
+
+# Cell Ranger's per-barcode fragment counts include a small number of fragments that are
+# not written to the fragments file. The file is the ground truth for the curves, so the
+# endpoint can be slightly below Cell Ranger's median but never above it.
+MAX_MISSING_FRACTION = 1e-4
+
+
+def test_atac_fragments_never_above_cellranger(atac_deficit):
+    assert np.all(atac_deficit >= 0)
+
+
+def test_atac_missing_fragments_are_rare(atac, atac_deficit):
+    ours = expected_counts(atac.cell, [1.0])[:, 0]
+    missing = atac_deficit.sum() / (ours.sum() + atac_deficit.sum())
+    print(f"\nfragments counted by Cell Ranger but not in the file: {missing:.2e}")
+    assert missing < MAX_MISSING_FRACTION
+
+
+def test_atac_median_fragments(atac, summary):
+    median = np.median(expected_counts(atac.cell, [1.0])[:, 0])
+    reported = summary_metric(summary, "ATAC Median high-quality fragments per cell")
+    print(f"\nmedian fragments per cell: {median:.0f} (Cell Ranger: {reported:.0f})")
+    assert reported * (1 - MAX_MISSING_FRACTION) <= median <= reported
+
+
+def test_atac_duplication(atac, summary):
+    dup = expected_saturation(atac.all_barcode, [1.0])[0]
+    assert dup == pytest.approx(summary_metric(summary, "ATAC Percent duplicates"), abs=1e-3)
+
+
+def test_atac_peak_memory(atac):
+    assert peak_rss_gb() < 2.0
+
+
+# ---------------------------------------------------------------- web-summary curves
+
+
+@pytest.fixture(scope="module")
+def web_curves(arc):
+    assert arc.web_summary is not None
+    return extract_curves(arc.web_summary)
+
+
+# metric -> (histogram fixture, histogram attribute, total read pairs metric, max relative diff)
+# GEX: Cell Ranger plots one random binomial draw per point, so its values scatter around
+# the expectation: 1%.
+# ATAC: Cell Ranger's curve is an expectation as well; the remaining difference comes from
+# the fragments it counts that are not in the fragments file: 0.1%.
+CURVES = {
+    "umis_per_cell": ("gex", "umi", "GEX Sequenced read pairs", 0.01),
+    "genes_per_cell": ("gex", "gene", "GEX Sequenced read pairs", 0.01),
+    "fragments_per_cell": ("atac", "cell", "ATAC Sequenced read pairs", 0.001),
+}
+MIN_CURVE_POINTS = 10
+
+
+@pytest.mark.parametrize("metric", list(CURVES))
+def test_curve_matches_web_summary(request, metric, web_curves, summary):
+    fixture, attr, total_metric, tol = CURVES[metric]
+    hists = request.getfixturevalue(fixture)
+    ws = web_curves[web_curves.metric == metric]
+    assert len(ws) >= MIN_CURVE_POINTS
+
+    ws = ws[ws.mean_reads_per_cell > 0]
+    total = summary_metric(summary, total_metric)
+    rates = np.minimum(ws.mean_reads_per_cell.to_numpy() * hists.n_cells / total, 1.0)
+    ours = expected_curve(getattr(hists, attr), rates)
+    rel = np.abs(ours - ws.value.to_numpy()) / ws.value.to_numpy()
+    print(f"\n{metric}: max relative difference {rel.max():.4%} over {len(rel)} points")
+    assert rel.max() < tol
